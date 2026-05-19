@@ -1244,6 +1244,14 @@ class KeyMintSecurityLevelInterceptor(
                 ?.value
         }
 
+        fun findTeeResponseByKeyId(callingUid: Int, nspace: Long?): KeyEntryResponse? {
+            if (nspace == null || nspace == 0L) return null
+            return teeResponses.entries
+                .filter { (keyId, _) -> keyId.uid == callingUid }
+                .find { (_, response) -> response.metadata?.key?.nspace == nspace }
+                ?.value
+        }
+
         fun getPatchedChain(keyId: KeyIdentifier): Array<Certificate>? = patchedChains[keyId]
 
         fun isAttestationKey(keyId: KeyIdentifier): Boolean = attestationKeys.contains(keyId)

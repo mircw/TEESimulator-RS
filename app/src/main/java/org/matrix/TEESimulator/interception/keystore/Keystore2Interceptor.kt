@@ -237,6 +237,15 @@ object Keystore2Interceptor : AbstractKeystoreInterceptor() {
                         )
                         return InterceptorUtils.createTypedObjectReply(info.response)
                     }
+                    val teeResp = KeyMintSecurityLevelInterceptor.findTeeResponseByKeyId(
+                        callingUid, descriptor.nspace
+                    )
+                    if (teeResp != null) {
+                        SystemLogger.info(
+                            "[TX_ID: $txId] Found TEE response via KEY_ID nspace=${descriptor.nspace}"
+                        )
+                        return InterceptorUtils.createTypedObjectReply(teeResp)
+                    }
                 }
                 return TransactionResult.ContinueAndSkipPost
             }
