@@ -15,6 +15,7 @@ object PatchLevelManager {
     private const val STAGING_FILE = "/data/adb/tricky_store/security_patch.txt.next"
     private const val FLOOR_YYYYMMDD = 20200101
     private const val MAX_PAST_OFFSET = 10000
+    private const val MAX_FUTURE_DAYS = 60L
 
     private val DATE_PATTERN = Regex("^\\d{4}-\\d{2}-\\d{2}$")
     private val PROP_PATTERN = Regex("^SECURITY_PATCH=(.+)$", RegexOption.MULTILINE)
@@ -50,11 +51,21 @@ object PatchLevelManager {
             SystemLogger.warning("PatchLevelManager: $date below floor $FLOOR_YYYYMMDD")
             return
         }
-        val today =
-            LocalDate.now().let { it.year * 10000 + it.monthValue * 100 + it.dayOfMonth }
+        val now = LocalDate.now()
+        val today = now.year * 10000 + now.monthValue * 100 + now.dayOfMonth
         if (today >= dateInt + MAX_PAST_OFFSET) {
             SystemLogger.warning(
                 "PatchLevelManager: $date more than 1y older than today ($today)"
+            )
+            return
+        }
+        val maxFuture =
+            now.plusDays(MAX_FUTURE_DAYS).let {
+                it.year * 10000 + it.monthValue * 100 + it.dayOfMonth
+            }
+        if (dateInt > maxFuture) {
+            SystemLogger.warning(
+                "PatchLevelManager: $date more than $MAX_FUTURE_DAYS days in future ($maxFuture)"
             )
             return
         }
