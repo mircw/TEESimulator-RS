@@ -3,22 +3,35 @@
 Authoring session date: 2026-05-19
 Branch: `feat/self-sufficient-spoofing`
 Source plan: `/home/rootdev/.claude/plans/fancy-humming-firefly.md`
-Status: 5 phase commits landed, full debug ZIP builds clean, all device tests deferred, 5 CRITICAL + 10 MAJOR critic findings pending decision and fix.
+Status: 5 phase commits landed, full debug + full release pipeline clean, all device tests deferred, 5 CRITICAL + 10 MAJOR critic findings pending decision and fix.
 
 ## Resume protocol for next session
 
 Read in order:
 
 1. This document end-to-end.
-2. `/home/rootdev/.claude/plans/fancy-humming-firefly.md` (source plan).
-3. `git log --oneline feat/self-sufficient-spoofing -12` to confirm branch state matches the table below.
+2. `/home/rootdev/.claude/plans/fancy-humming-firefly.md` (source plan). Lives under rootdev's private home — readable directly under user `rootdev`, requires `sudo cat` under any other user.
+3. `git log --oneline feat/self-sufficient-spoofing -14` to confirm branch state matches the table below.
 4. The four critic findings sections below — every unresolved finding has a file:line citation and a proposed fix.
+5. The "Untracked working-tree state" section before running any build or status check, so the noise doesn't trigger false alarms.
 
 Then ask the user which findings to prioritize before writing code.
+
+### Context that does NOT persist across sessions
+
+- Raw critic agent transcripts (written to `/tmp/claude-*/.../tasks/*.output`) are wiped between sessions. The CRITICAL/MAJOR synthesis in this document is the only persistent record of those findings.
+- OMC task system state (the 24 tracker tasks) lives in `.omc/state/sessions/<sessionId>/`. The 5 pending device-test tasks (#11, #15, #19, #23, #24) may not survive into the next session under a new session ID. Full step lists for all 5 are embedded below in the "Deferred device-test step lists" section so the work is reproducible even if `TaskList` returns empty.
+- Background bash task outputs (`/tmp/claude-*/.../tasks/b*.output`) are session-scoped. Build artifacts in `out/` are durable on disk.
+
+### User-context assumption
+
+This session ran as user `rootdev`. The rust toolchain, `~/.cargo` HDD symlink, `~/.rustup` HDD symlink, `~/.gradle/init.d/00-per-user-builds.gradle.kts` symlink, and the build path under `/mnt/companion/rootdev/builds/TEESimulator/` are specific to that user. Other users (thinker, president, planner, claudetest) inherit the same `/etc/gradle-init.d/` + `/etc/profile.d/` infrastructure on next login — but their own `~/.cargo` and per-user `/mnt/companion/$USER/builds/TEESimulator/` will be empty until they run a build. If next session runs under a different user, expect to: install rust (`curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable --profile minimal --no-modify-path`), `cargo install cargo-ndk`, log out and back in so profile.d hooks fire.
 
 ## Branch state
 
 ```text
+<expected next commit> docs(plans): audit and rename handoff doc
+9941dec docs(plans): wrap up session with full handoff
 2f64730 chore(scripts): make package.sh find user-local cargo
 14ec9c3 feat(spoof): periodic bulletin refresh via BulletinPoller
 acdf452 feat(spoof): PatchLevelManager with PIF resolution
@@ -29,8 +42,11 @@ d8326de build(gradle): expose cargo bin path to rust task
 a8e40ef build(gradle): set kotlin jvmTarget to JVM_21
 d34630f fix(interception): omit KEY_SIZE for EC keys with ecCurve
 fe3c3b1 fix(interception): drop delete marker on key regen
-e0105d6 wip(keystore): add F1 Phase A diagnostic logs in updateAad path  (pre-existing on fix/bhim-regression base)
+e0105d6 wip(keystore): add F1 Phase A diagnostic logs in updateAad path
+d4e2413 Merge pull request #21 from Andrea-lyz/fix/duck-detector-generate-fingerprint
 ```
+
+The two `docs(plans):` commits at the top are this handoff doc + the audit-pass refinements. `e0105d6` was pre-existing on the base branch; everything above it landed this session.
 
 All authored by `Enginex0 <enginex0@users.noreply.github.com>`. No `Co-Authored-By` trailers anywhere. All commit messages conform to Conventional Commits (subject ≤50 chars where possible, body wraps at 72). Per project policy, branch lives local only — no `git push`, no PR.
 
@@ -105,7 +121,25 @@ Critic finding M2 below proposes moving BootStateManager + PatchLevelManager to 
 - `cargo-ndk 4.1.2` installed via `cargo install`
 
 ### Project tree cleanup
+
 The pre-existing `.gradle`, `build`, `app/build`, `native-certgen/target` symlinks (owned by `thinker`, pointing into `/mnt/companion/thinker/`) and the real `stub/build` directory (owned by `president`) were removed so the new Gradle init script handles all build-dir routing transparently. Other users (`thinker`, `president`) will need to re-lay their own gradle artifacts on their next build invocation — the init script handles this automatically for them too once they're logged in via profile.d.
+
+The `app/.cxx` symlink (NDK cmake cache) was missed in the initial sweep and surfaced during the audit pass. It's now relaid to `/mnt/companion/rootdev/builds/TEESimulator/app-cxx` consistent with the others. The Gradle init script does NOT cover `app/.cxx` because that directory is owned by the CMake/NDK toolchain integration, not Gradle's `layout.buildDirectory`. If a future user hits a permission-denied on `app/.cxx`, the fix is `rm app/.cxx && mkdir -p /mnt/companion/$USER/builds/TEESimulator/app-cxx && ln -s /mnt/companion/$USER/builds/TEESimulator/app-cxx app/.cxx`.
+
+## Untracked working-tree state
+
+After this session, `git status --short` shows a long list of untracked files. None of them block the build, but next session should know what each is before deleting anything.
+
+- `module/update.json` — shows as `M` (modified) almost always. The `refreshUpdateJson` gradle task (Step 0 Commit E) auto-rewrites this file on every package run to keep `versionCode` and `zipUrl` in lockstep with `gitCommitCount`. Current on-disk content reflects the last build's count, not the committed value. Safe to ignore unless you're explicitly bumping the release version.
+- `local.properties` — untracked, owned by `thinker shared`. Contains `sdk.dir=/home/thinker/Android/Sdk` with an explanatory header saying it was redirected from president's path because president's NDK 27.3.13750724 sysroot is partially corrupted. Next session should keep this file as-is unless rootdev (or whoever) installs their own Android SDK. Thinker's SDK is readable by rootdev via group-shared mount.
+- `app/.cxx` — symlink to rootdev's companion namespace (relaid during this session's audit). Don't delete.
+- `harness/` — untracked dir containing `__pycache__/` and `tests/`. Purpose unknown — investigate before deleting. Likely test infrastructure left by a prior session.
+- `.audit-refs/`, `.fixture-*/`, `logs_llm/`, `vectors.db*`, `.mcp-vector-search/` — agent-tooling artifacts (probably from prior sessions of vector search / fixture-based testing). Don't touch without understanding what created them.
+- `.claude/`, `.vscode/`, `archives/`, `context.md`, `CLAUDE.md`, `docs/` — local config + scratch. The repo-root `CLAUDE.md` is the project instructions Claude reads on session start.
+- `.omc/plans/_archive/` — historical handoffs and audits (including `tee-fingerprint-handoff-2026-05-02.md` which established the `<feature>-handoff-YYYY-MM-DD.md` naming convention this file now follows).
+- `.omc/plans/tee-fingerprint-*` — 8 untracked plan files for the TEE fingerprint initiative (separate from this self-sufficient-spoofing work). `tee-fingerprint-phase-registry.md` is the registry. The relationship between that initiative and this one is not yet defined — open question whether they should converge.
+- `.omc/.project-memory.json.tmp.*` — 7 stale tmp files. Safe to delete with `rm .omc/.project-memory.json.tmp.*` but they don't break anything.
+- `.omc/sessions/`, `.omc/state/`, `.omc/research/` — OMC orchestration state. Treat as ephemeral; do not commit.
 
 ## Test status
 
@@ -130,7 +164,74 @@ To run all deferred tests: connect an ADB device, then:
 ./scripts/package.sh --release --deploy --clear-keys --reboot --verify
 ```
 
-Then per-phase checks per each task's description in the OMC task system (run `TaskGet` on tasks 11/15/19/23/24 in next session to retrieve full step lists).
+Then run the per-phase checks below. The step lists are embedded here in case the OMC task system has dropped tasks 11/15/19/23/24 by the time next session runs.
+
+## Deferred device-test step lists
+
+### Phase 1 (task #11) — default `security_patch.txt`
+
+1. `./scripts/package.sh --release` (~11 min from clean).
+2. `adb shell rm -f /data/adb/tricky_store/security_patch.txt` — wipe any existing config.
+3. `./scripts/package.sh --deploy --clear-keys --reboot --verify`.
+4. `adb shell cat /data/adb/tricky_store/security_patch.txt` — must show the 5-line default (4 comment lines + `system=prop`).
+5. Launch Chunqiu detector on device; capture screenshot/log. Code 26 must NOT appear.
+6. Launch KeyAttestation app, generate a test key, pull leaf cert, run `openssl x509 -text -in leaf.pem` and confirm tags 706/718/719 encode the same date that `adb shell getprop ro.build.version.security_patch` returns. Tag 706 encodes YYYYMM (6 digits); tags 718/719 encode YYYYMMDD (8 digits). The split is handled by `AndroidDeviceUtils.parsePatchLevelValue` at lines 336-357.
+
+### Phase 2 (task #15) — bootloader-lock spoofing
+
+1. Pre-deploy baseline: `adb shell "getprop ro.boot.verifiedbootstate; getprop ro.boot.flash.locked; getprop ro.boot.veritymode"` — capture current values (likely `orange / 0 / logging` on an unlocked test device).
+2. `./scripts/package.sh --release --deploy --clear-keys --reboot --verify`.
+3. Post-reboot, re-run step 1: expect `green / 1 / enforcing`.
+4. KeyAttestation app — "Verified Boot State" row reports GREEN.
+5. Chunqiu detector — any D44-family detections clear.
+6. `adb logcat -d -s TEESimulator | grep -iE 'BootState|verifiedboot'` — confirm `BootStateManager.apply()` ran and logged each resetprop.
+
+### Phase 3 (task #19) — PIF-driven patch level
+
+1. `adb shell mkdir -p /data/adb/modules/playintegrityfix && echo '{"SECURITY_PATCH":"2025-11-01"}' | adb shell tee /data/adb/modules/playintegrityfix/custom.pif.json`.
+2. `./scripts/package.sh --release --deploy --clear-keys --reboot --verify`.
+3. Post-reboot: `adb shell getprop ro.build.version.security_patch` → `2025-11-01`.
+4. `adb shell getprop ro.vendor.build.security_patch` → `2025-11-01`.
+5. `adb shell cat /data/adb/tricky_store/security_patch.txt` → three `=2025-11-01` lines.
+6. KeyAttestation app → generate key → pull cert → `openssl x509 -text` → confirm tag 706 encodes `202511` (YYYYMM, 6 digits), tags 718/719 encode `20251101` (YYYYMMDD, 8 digits).
+7. Chunqiu detector — code 26 clear.
+8. Negative test: delete the `custom.pif.json`. Reboot. Confirm patch resolves to `SystemProperties` fallback and no crash. `adb logcat -d -s TEESimulator | grep -i PatchLevel` should show the fallback log line.
+
+### Phase 4 (task #23) — `BulletinPoller`
+
+1. Pre-deploy: `adb shell rm -f /data/adb/tricky_store/last_bulletin_fetch.json`.
+2. `./scripts/package.sh --release --deploy --clear-keys --reboot --verify`.
+3. Wait 15 seconds post-reboot for first bootstrap attempt.
+4. `adb shell cat /data/adb/tricky_store/last_bulletin_fetch.json` — first attempt entry shows `status: "success"` and a real `parsed_date`.
+5. If `parsed_date` is newer than the device's current patch: `adb shell cat /data/adb/tricky_store/security_patch.txt` shows the new explicit dates; `adb shell getprop ro.build.version.security_patch` matches.
+6. Negative network: `adb shell svc wifi disable && adb reboot`. Wait 60s. Check history shows `network_error` entries with exponential-backoff timestamp gaps.
+7. SELinux verification: `adb shell sesearch -A -s ksu -c tcp_socket` (if sesearch present) OR `adb shell "dmesg | grep -iE 'avc.*denied' | grep -i ksu"` — must NOT show denials for outbound TCP. Note critic finding C3 — if denials appear, append the UDP rules first.
+
+### Final E2E (task #24)
+
+```bash
+./scripts/package.sh --release --deploy --clear-keys --reboot --verify
+```
+
+On device:
+
+```bash
+adb root
+adb shell getprop ro.boot.verifiedbootstate              # expect: green
+adb shell getprop ro.boot.flash.locked                   # expect: 1
+adb shell getprop ro.boot.veritymode                     # expect: enforcing
+adb shell getprop ro.build.version.security_patch        # expect: matches cert tag 706
+adb shell getprop ro.vendor.build.security_patch         # expect: matches cert tag 718
+adb shell cat /data/adb/tricky_store/security_patch.txt
+adb shell cat /data/adb/tricky_store/last_bulletin_fetch.json
+```
+
+Then:
+
+1. Chunqiu detector → code 26 must NOT appear.
+2. KeyAttestation app → "Verified Boot: GREEN" + matching patch dates in the cert (tag 706 = YYYYMM 6-digit, tags 718/719 = YYYYMMDD 8-digit).
+3. Wait 24h (or trigger debug refresh) → confirm a new bulletin entry in the ring buffer history.
+4. Regression check: `keybox.xml` still consumed (generate a key, confirm signing chain), `target.txt` still respected (try with a non-target app, confirm no interception), `hbk` seed still generated (file exists at `/data/adb/tricky_store/hbk`), `adb shell pidof supervisor` returns non-empty PID.
 
 ## Critic findings — adversarial review by 4 agents
 
@@ -313,10 +414,10 @@ These weren't in the 4-phase plan but the mobile-security critic flagged them fo
 /home/president/Git-repo-success/TEESimulator/app/src/main/java/org/matrix/TEESimulator/config/BootStateManager.kt
 /home/president/Git-repo-success/TEESimulator/app/src/main/java/org/matrix/TEESimulator/config/PatchLevelManager.kt
 /home/president/Git-repo-success/TEESimulator/app/src/main/java/org/matrix/TEESimulator/config/BulletinPoller.kt
-/home/president/Git-repo-success/TEESimulator/.omc/plans/self-sufficient-spoofing-session-handoff.md   (this file)
-/etc/gradle-init.d/per-user-builds.gradle.kts                                                          (system)
-/etc/profile.d/gradle-per-user-init.sh                                                                 (system)
-/etc/profile.d/cargo-path.sh                                                                           (system)
+/home/president/Git-repo-success/TEESimulator/.omc/plans/self-sufficient-spoofing-handoff-2026-05-19.md   (this file, renamed from -session-handoff during audit pass)
+/etc/gradle-init.d/per-user-builds.gradle.kts                                                            (system)
+/etc/profile.d/gradle-per-user-init.sh                                                                   (system)
+/etc/profile.d/cargo-path.sh                                                                             (system)
 ```
 
 ### Modified (6 files)
@@ -330,14 +431,15 @@ These weren't in the 4-phase plan but the mobile-security critic flagged them fo
 /home/president/Git-repo-success/TEESimulator/scripts/package.sh                                        (cargo PATH chore)
 ```
 
-### Pre-existing references cited in the work
+### Pre-existing references cited in the work (verified against current branch state)
 
 ```text
 app/src/main/java/org/matrix/TEESimulator/config/ConfigurationManager.kt:253-256   (system=prop force-override)
 app/src/main/java/org/matrix/TEESimulator/config/ConfigurationManager.kt:280       (ConfigObserver)
 app/src/main/java/org/matrix/TEESimulator/util/AndroidDeviceUtils.kt:148-165       (private setProperty ByteArray variant — pattern source)
-app/src/main/java/org/matrix/TEESimulator/util/AndroidDeviceUtils.kt:318-330       (parsePatchLevelValue — Phase 3 cert encoding handler)
-app/src/main/java/org/matrix/TEESimulator/util/AndroidDeviceUtils.kt:346-350       (parsePatchLevelValue 6-char fallback — see M1)
+app/src/main/java/org/matrix/TEESimulator/util/AndroidDeviceUtils.kt:167-183       (NEW internal setProperty String variant — Phase 2)
+app/src/main/java/org/matrix/TEESimulator/util/AndroidDeviceUtils.kt:336-357       (parsePatchLevelValue — Phase 3 cert encoding handler)
+app/src/main/java/org/matrix/TEESimulator/util/AndroidDeviceUtils.kt:346-350       (parsePatchLevelValue 6-char fallback — see critic finding M1)
 app/src/main/java/org/matrix/TEESimulator/interception/keystore/shim/KeyMintSecurityLevelInterceptor.kt:1071-1073   (Step 0 Commit B EC KEY_SIZE guard)
 ```
 
@@ -363,14 +465,17 @@ The version number is `gitCommitCount` (175 = after my 4 phase commits; 176 = af
 
 ## What NOT to touch in next session
 
-- The 11 commits on `feat/self-sufficient-spoofing` are landed and audited. Do not amend.
-- `/etc/gradle-init.d/` and `/etc/profile.d/*.sh` are durable system-level fixes. Don't relay symlinks in project trees again — the init script handles it.
-- The project-tree `.gradle`, `build`, `app/build`, `native-certgen/target` paths are GONE. The init script puts them at `/mnt/companion/$USER/builds/TEESimulator/`. Do not recreate symlinks in the project tree.
-- `~/.cargo` and `~/.rustup` symlinks for rootdev are laid correctly. Don't touch.
+- The 13 commits on `feat/self-sufficient-spoofing` are landed. Do not amend any of them (project hygiene: NEVER amend published commits).
+- `/etc/gradle-init.d/` and `/etc/profile.d/*.sh` are durable system-level fixes. Don't relay symlinks in project trees again — the init script handles it. The exception is `app/.cxx` which is NDK-managed, not Gradle-managed (see the Project tree cleanup subsection above for the relay command if needed).
+- The project-tree `.gradle`, `build`, `app/build`, `native-certgen/target` paths are GONE. The init script puts them under `/mnt/companion/$USER/builds/TEESimulator/`. Do not recreate symlinks in the project tree for those four.
+- `~/.cargo` and `~/.rustup` symlinks for rootdev are laid correctly to `/mnt/companion/rootdev/caches/{cargo,rustup}`. Don't touch.
+- `local.properties` is thinker's redirect to thinker's SDK because president's NDK sysroot is partially corrupted. Don't change it unless rootdev (or whoever) installs their own Android SDK + NDK.
 
 ## Suggested first action next session
 
-1. Read this file.
-2. Run `git log --oneline feat/self-sufficient-spoofing -12` to confirm branch state matches.
-3. Ask user which critic finding to address first. Recommended priority: C1 (passive default destruction) before any device test, because deferred Phase 1 test (#11) will pass on first deploy and silently fail on second deploy when the bulletin poller runs.
-4. Use `TaskList` to see the 5 pending device-test tasks; treat them as the success criteria after fixes land.
+1. Read this file end-to-end.
+2. Run `git log --oneline feat/self-sufficient-spoofing -14` to confirm the branch state matches the table above.
+3. Run `git status --short` and cross-reference the "Untracked working-tree state" section so the noise doesn't trigger false-positive cleanup.
+4. Ask the user which critic finding to address first. Recommended priority: C1 (passive-default destruction) before any device test, because deferred Phase 1 test #11 will pass on the first deploy and silently regress on the next poll when BulletinPoller flips `system=prop` to explicit dates.
+5. If OMC `TaskList` returns the 5 device-test tasks, treat them as the success criteria after fixes land. If `TaskList` is empty (session ID changed), use the embedded "Deferred device-test step lists" section above.
+6. Before any device deploy, verify the device's `ro.vendor.build.security_patch` returns full YYYY-MM-DD format (not YYYY-MM). If it's YYYY-MM, fix critic finding M1 first.
