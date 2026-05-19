@@ -80,14 +80,14 @@ All authored by `Enginex0 <enginex0@users.noreply.github.com>`. No `Co-Authored-
 - `7abdba9 feat(spoof): resetprop bootloader lock at boot`
 - New file: `app/src/main/java/org/matrix/TEESimulator/config/BootStateManager.kt`
 - Modified: `app/src/main/java/org/matrix/TEESimulator/util/AndroidDeviceUtils.kt` (added `internal fun setProperty(name: String, value: String)` overload at line 167-183 after the existing private ByteArray variant)
-- Modified: `app/src/main/java/org/matrix/TEESimulator/App.kt` (added import + `BootStateManager.apply()` call at line 50)
+- Modified: `app/src/main/java/org/matrix/TEESimulator/App.kt` (added import + `BootStateManager.apply()` call at line 48 after the M2 reorder)
 - Behavior: at every boot, resetprops `ro.boot.verifiedbootstate=green`, `ro.boot.flash.locked=1`, `ro.boot.veritymode=enforcing`. Skips work when current already matches target.
 
 ### Phase 3 — PatchLevelManager
 - `acdf452 feat(spoof): PatchLevelManager with PIF resolution`
 - New file: `app/src/main/java/org/matrix/TEESimulator/config/PatchLevelManager.kt`
-- Modified: `App.kt` (added import + `PatchLevelManager.initialize()` at line 51)
-- Behavior: resolves the active patch date from PlayIntegrityFix via 6-path override chain (`PatchLevelManager.kt:23-30`), falls back to `SystemProperties.get("ro.build.version.security_patch", Build.VERSION.SECURITY_PATCH)`. Validates YYYY-MM-DD format, rejects dates `< 20200101` or more than `MAX_PAST_OFFSET = 10000` (~1 year) in the past. On accept: atomic stage-and-rename `security_patch.txt` with `system=$date\nboot=$date\nvendor=$date\n`, then resetprops both system and vendor patch props.
+- Modified: `App.kt` (added import + `PatchLevelManager.initialize()` at line 49 after the M2 reorder)
+- Behavior: resolves the active patch date from PlayIntegrityFix via 6-path override chain (`PatchLevelManager.kt:36-44`), falls back to `SystemProperties.get("ro.build.version.security_patch", Build.VERSION.SECURITY_PATCH)`. Validates YYYY-MM-DD format, rejects dates `< 20200101` or more than `MAX_PAST_OFFSET = 10000` (~1 year) in the past. On accept: atomic stage-and-rename `security_patch.txt` with `system=$date\nboot=$date\nvendor=$date\n`, then resetprops both system and vendor patch props.
 
 ### Phase 4 — BulletinPoller
 - `14ec9c3 feat(spoof): periodic bulletin refresh via BulletinPoller`
@@ -104,22 +104,22 @@ All authored by `Enginex0 <enginex0@users.noreply.github.com>`. No `Co-Authored-
 
 ## App.kt init order (current)
 
-`App.kt:33-65` flow:
+`App.kt:37-76` flow (post-M2 reorder from `b50d313`, post-C5 isolation from `311523e`):
 
 1. `SystemLogger.info("Welcome to TEESimulator!")`
 2. `Thread.setDefaultUncaughtExceptionHandler { ... }` (logs only)
 3. `prepareEnvironment()`
-4. `initializeInterceptors()` (blocks until keystore2 hook attaches)
-5. `ConfigurationManager.initialize()`
-6. `BootStateManager.apply()` (Phase 2)
-7. `PatchLevelManager.initialize()` (Phase 3)
+4. `BootStateManager.apply()` (Phase 2, pre-interceptor per M2)
+5. `PatchLevelManager.initialize()` (Phase 3, pre-interceptor per M2)
+6. `ConfigurationManager.initialize()`
+7. `initializeInterceptors()` (blocks until keystore2 hook attaches)
 8. `AndroidDeviceUtils.setupBootKeyAndHash()`
 9. BouncyCastle provider swap
 10. `NativeCertGen.initialize("/data/adb/modules/tricky_store/libcertgen.so")`
-11. `BulletinPoller.start()` (Phase 4)
+11. `BulletinPoller.start()` wrapped in its own `try { } catch (Throwable)` (Phase 4, C5)
 12. `Looper.loop()` (blocks forever)
 
-Critic finding M2 below proposes moving BootStateManager + PatchLevelManager to step 3 (before `initializeInterceptors`) to close a race where keystore2 caches the un-spoofed values during its init.
+Steps 4 and 5 precede step 7 so keystore2's first binder calls observe the spoofed `ro.boot.verifiedbootstate` and `ro.build.version.security_patch` values rather than the un-spoofed defaults. Step 11 is isolated so a poller failure does not propagate to the outer `catch (e: Exception) { ...; throw e }` and kill the daemon — losing Phases 1/2/3 with it would defeat the point of C5.
 
 ## Infrastructure installed this session (system-level, NOT in git)
 
