@@ -1,3 +1,28 @@
+## TEESimulator-RS v6.0.0-235
+
+11 commits since v6.0.0-224. Duck Detector generate-mode fingerprint cleared. Shizuku-routed BYO attestation fixed. Vol-key confirmation restored on Magisk.
+
+### Detection Coverage
+- Duck Detector "TEE Simulator generate-mode fingerprint" cleared. `toAuthorizations` reordered to AOSP keymint reference order; KEY_SIZE moves from auth#4 to auth#2, breaking the byte-224 anchor the probe relied on. 0/31 matches on fresh self-probes (was 15/36).
+- `persist.logd.size` variants blanked at boot via `service.sh`. Removes a logd-tuning side-channel.
+
+### BYO & Shizuku Routing
+- Shizuku-routed BYO attestation no longer fails with `-49 UNSUPPORTED_TAG`. `shouldSkipUid` moved into `handleGenerateKey`, evaluated after BYO parameters are parsed.
+- `createOperation` parallel fix: outer UID gate removed; the cache-or-forward lookup is the sole gate. BYO keys created under Shizuku UID can now be used for signing under the same UID.
+- `forceGenerate` simplified: any attest-key or BYO request routes to software unconditionally.
+- BYO attest-key miss returns the full keybox chain instead of a malformed depth-1 chain.
+- AUTO TEE race dispatch removed. Resolution uses `DeviceAttestationService.isTeeFunctional` only.
+- Symmetric gen rejects `attestationKey != null` early with `INVALID_ARGUMENT`. Unsupported-algorithm branch returns `-38` instead of `-49`.
+
+### Action Button
+- Vol+ / Vol- confirmation restored on Magisk. Streaming `getevent -lq` matched inline against `KEY_VOLUMEUP DOWN` / `KEY_VOLUMEDOWN DOWN`, wrapped in `/system/bin/timeout 10`. The prior polled approach timed out on six-events-per-keypress kernels.
+
+### Verified
+- Android 15 (SDK 35), daemon PID 1466.
+- Cross-device confirmation pending on OnePlus PKX110 and Samsung SM-S928B.
+
+---
+
 ## TEESimulator-RS v6.0.0-224
 
 59 commits since v6.0.0-162. Self-sufficient spoofing infrastructure, Duck Detector TamperScore-4 cleared on Xiaomi A16, persistent symmetric key storage (PR #22), 22-language action button hardening.
